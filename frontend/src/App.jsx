@@ -202,7 +202,7 @@ function App() {
 
         {/* Footer */}
         <footer className="mt-12 text-center text-gray-500 text-sm">
-          <p>Made with ❤️ by Israel Pratt</p>
+          <p>Made with ❤️ by EJ & IZMAN</p>
           <p className="mt-2">
             Note: Some songs may not be available on Spotify
           </p>
