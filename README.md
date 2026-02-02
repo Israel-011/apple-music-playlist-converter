@@ -6,7 +6,7 @@ Convert your Apple Music playlists to Spotify playlists with ease! This automate
 
 ## 📸 Screenshot
 
-![Playlist Converter UI](assets/screenshot.png)
+![Playlist Converter UI](assets/playlistconverter.png)
 
 _Beautiful, modern web interface with dark theme, glassmorphic design, and responsive layout for both mobile and desktop_
 
