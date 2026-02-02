@@ -5,6 +5,7 @@ from typing import Any, Final, Optional
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from rapidfuzz import fuzz
 
 from apple_music_lib import get_apple_music_songs
 from config import settings
@@ -16,6 +17,7 @@ from models import SpotifyCredentials
 
 type SpotifyUser = dict[str, str | Any] | Any
 WAIT_TIME: Final[int] = 5
+FUZZY_THRESHOLD: Final[int] = 80  # Minimum similarity score for fuzzy matching
 
 
 def get_playlist_id(
@@ -79,65 +81,177 @@ def get_playlist_id(
     return playlist_id
 
 
+def find_song_with_fuzzy_match(
+    sp: spotipy.Spotify,
+    song_name: str,
+    artist_name: str,
+    logger: Any,
+) -> Optional[str]:
+    """
+    Find a song on Spotify using fuzzy matching if exact match fails.
+    
+    Args:
+        sp: Spotify client
+        song_name: Name of the song to search for
+        artist_name: Name of the artist
+        logger: Logger instance
+        
+    Returns:
+        Spotify track URI if found, None otherwise
+    """
+    # Try exact match first
+    try:
+        exact_search = sp.search(
+            q=f"track:'{song_name}' artist:'{artist_name}'", 
+            type="track", 
+            limit=1
+        )
+        if exact_search["tracks"]["items"]:
+            track_uri = exact_search["tracks"]["items"][0]["id"]
+            logger.info(f"✓ Exact match found: '{song_name}' by '{artist_name}'")
+            return track_uri
+    except Exception as e:
+        logger.debug(f"Exact search failed: {e}")
+    
+    # If exact match fails, try broader search with fuzzy matching
+    try:
+        logger.info(f"Trying fuzzy match for: '{song_name}' by '{artist_name}'")
+        
+        # Broader search without strict matching
+        fuzzy_search = sp.search(
+            q=f"{song_name} {artist_name}", 
+            type="track", 
+            limit=10  # Get multiple results for fuzzy comparison
+        )
+        
+        if not fuzzy_search["tracks"]["items"]:
+            logger.warning(f"✗ No results found for '{song_name}' by '{artist_name}'")
+            return None
+        
+        # Find best match using fuzzy matching
+        best_match = None
+        best_score = 0
+        
+        for track in fuzzy_search["tracks"]["items"]:
+            spotify_song_name = track["name"].lower()
+            spotify_artists = [artist["name"].lower() for artist in track["artists"]]
+            primary_artist = spotify_artists[0] if spotify_artists else ""
+            
+            # Calculate similarity scores
+            song_similarity = fuzz.ratio(song_name.lower(), spotify_song_name)
+            
+            # Check if the primary artist matches (fuzzy)
+            artist_similarity = max(
+                fuzz.ratio(artist_name.lower(), artist.lower()) 
+                for artist in spotify_artists
+            )
+            
+            # Weighted score: song name is more important, but artist must match
+            # Artist match must be above threshold to be considered
+            if artist_similarity >= FUZZY_THRESHOLD:
+                combined_score = (song_similarity * 0.7) + (artist_similarity * 0.3)
+                
+                logger.debug(
+                    f"Candidate: '{track['name']}' by '{primary_artist}' "
+                    f"(Song: {song_similarity}%, Artist: {artist_similarity}%, "
+                    f"Combined: {combined_score:.1f}%)"
+                )
+                
+                if combined_score > best_score and combined_score >= FUZZY_THRESHOLD:
+                    best_score = combined_score
+                    best_match = track
+        
+        if best_match:
+            best_artist = best_match["artists"][0]["name"]
+            logger.info(
+                f"✓ Fuzzy match found ({best_score:.1f}%): "
+                f"'{best_match['name']}' by '{best_artist}' "
+                f"for '{song_name}' by '{artist_name}'"
+            )
+            return best_match["id"]
+        else:
+            logger.warning(
+                f"✗ No suitable match found for '{song_name}' by '{artist_name}' "
+                f"(artist verification failed or score too low)"
+            )
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error during fuzzy search: {e}")
+        return None
+
+
 def add_songs_to_playlist(
     sp: spotipy.Spotify,
     playlist_id: str,
     song_list: list[dict[str, str]],
     playlist_name: str,
-) -> None:
-    # Create logger
+) -> dict[str, int]:
+    """
+    Add songs to playlist with improved fuzzy matching.
+    
+    Returns:
+        Dictionary with success_count and failed_count
+    """
     logger = create_logger(name=add_songs_to_playlist.__name__)
-    logger.debug("Adding songs to playlist")
+    logger.debug("Adding songs to playlist with fuzzy matching")
+
+    success_count = 0
+    failed_count = 0
+    failed_songs = []
 
     # Add songs to playlist
-    for song_data in song_list:
+    for idx, song_data in enumerate(song_list, 1):
         try:
-            # Search Spotify for song
-            song_name, song_artist = (
-                song_data["attributes"]["name"],  # type: ignore
-                song_data["attributes"]["artistName"],  # type: ignore
-            )
-
-            song_search_response: Any = sp.search(
-                q=f"track:'{song_name}' artist:'{song_artist}'", type="track", limit=1
-            )
-            new_song_uri = song_search_response["tracks"]["items"][0]["id"]
-            sleep(1.5)
-
-            # Add song to playlist
-            add_song_to_playlist_response = sp.playlist_add_items(
-                playlist_id=playlist_id, items=[new_song_uri]
-            )
-            logger.info(f"Added '{song_name}' by '{song_artist}' to '{playlist_name}'")
-            logger.debug(f"{add_song_to_playlist_response=}\n")
-        except IndexError:
-            try:
-                logger.error(
-                    f"Failed to add '{song_name}' by '{song_artist}' to '{playlist_name}'"
+            # Extract song information
+            song_name = song_data["attributes"]["name"]  # type: ignore
+            song_artist = song_data["attributes"]["artistName"]  # type: ignore
+            
+            logger.info(f"\n[{idx}/{len(song_list)}] Searching for: '{song_name}' by '{song_artist}'")
+            
+            # Find song with fuzzy matching
+            track_uri = find_song_with_fuzzy_match(sp, song_name, song_artist, logger)
+            
+            if track_uri:
+                sleep(1.5)
+                
+                # Add song to playlist
+                add_song_to_playlist_response = sp.playlist_add_items(
+                    playlist_id=playlist_id, items=[track_uri]
                 )
-            except Exception:
-                logger.error(f"Failed to add a song to '{playlist_name}'")
+                logger.info(f"✓ Added '{song_name}' by '{song_artist}' to '{playlist_name}'")
+                logger.debug(f"{add_song_to_playlist_response=}\n")
+                success_count += 1
+            else:
+                failed_count += 1
+                failed_songs.append(f"{song_name} - {song_artist}")
+                logger.error(f"✗ Failed to find '{song_name}' by '{song_artist}'")
+                
         except Exception as e:
-            logger.exception(e)
+            failed_count += 1
+            try:
+                failed_songs.append(f"{song_name} - {song_artist}")
+                logger.error(f"✗ Error adding '{song_name}' by '{song_artist}': {e}")
+            except Exception:
+                failed_songs.append("Unknown song")
+                logger.error(f"✗ Error adding unknown song: {e}")
         finally:
             sleep(WAIT_TIME)
-
-        # Search for song
-        # sp.search(
-        #     q=song_list[0]["artist"] + " " + song_list[0]["name"],
-        #     type="track",
-        #     limit=1,
-        # )
-
-        # q="remaster%2520track%3ADoxy%2520artist%3AMiles%2520Davis"
-        # q="track:Doxy artist:Miles Davis"
-        # q="track:'So Good' artist:'Torey D Shaun'"
-        # song["attributes"]["name"], song["attributes"]["artistName"]
-        # song_search_response = sp.search(q="track: Bounce! artist:Vennisay", type="track")
-        # song_search_response = sp.search(q=q, type="track", limit=1)
-        # logger.info(f"\n{song_search_response=}\n")
-        # with open("song_search_response1.json", "w") as f:
-        #     json.dump(song_search_response, f, indent=4)
+    
+    # Log summary
+    logger.info(f"\n{'='*60}")
+    logger.info(f"CONVERSION SUMMARY:")
+    logger.info(f"Total songs: {len(song_list)}")
+    logger.info(f"✓ Successfully added: {success_count}")
+    logger.info(f"✗ Failed: {failed_count}")
+    logger.info(f"{'='*60}\n")
+    
+    if failed_songs:
+        logger.warning(f"Failed songs ({failed_count}):")
+        for song in failed_songs:
+            logger.warning(f"  - {song}")
+    
+    return {"success_count": success_count, "failed_count": failed_count}
 
 
 def get_auth_and_current_user(
@@ -173,7 +287,13 @@ def create_spotify_playlist(
     scope: Optional[str | list[str]] = None,
     public: bool = False,
     description: str = "Apple Music playlist converted to Spotify playlist! Automated with Python :)",
-) -> None:
+) -> dict[str, int]:
+    """
+    Create Spotify playlist and add songs.
+    
+    Returns:
+        Dictionary with success_count and failed_count
+    """
     # Create logger
     logger = create_logger(name=create_spotify_playlist.__name__)
     logger.debug("Creating Spotify playlist")
@@ -195,8 +315,8 @@ def create_spotify_playlist(
         description=description,
     )
 
-    # Add songs to playlist
-    add_songs_to_playlist(
+    # Add songs to playlist and return statistics
+    return add_songs_to_playlist(
         sp=sp, playlist_id=playlist_id, song_list=song_list, playlist_name=playlist_name
     )
 
@@ -227,11 +347,15 @@ async def async_main() -> None:
         redirect_uri=settings.REDIRECT_URI,
     )
 
-    create_spotify_playlist(
+    stats = create_spotify_playlist(
         song_list=apple_song_list,
         spotify_creds=spotify_creds,
         playlist_name="GymBro",
     )
+    
+    print(f"\n✓ Conversion complete!")
+    print(f"  Successfully added: {stats['success_count']} songs")
+    print(f"  Failed: {stats['failed_count']} songs")
 
 
 def main() -> None:
