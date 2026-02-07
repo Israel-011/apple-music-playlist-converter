@@ -23,7 +23,9 @@ from backend.models import SpotifyCredentials
 spotify_token: dict | None = None
 
 FRONTEND_URL = "http://localhost:5173"
-BACKEND_REDIRECT_URI = "http://localhost:8000/api/auth/spotify/callback"
+BACKEND_REDIRECT_URI = (
+    settings.REDIRECT_URL or "http://localhost:8000/api/auth/spotify/callback"
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -89,7 +91,7 @@ def get_spotify_auth_url() -> str:
         "response_type": "code",
         "redirect_uri": BACKEND_REDIRECT_URI,
         "scope": scope,
-        "show_dialog": "false",
+        # "show_dialog": "false",
     }
 
     return f"{auth_url}?{urlencode(params)}"
@@ -138,7 +140,7 @@ async def health_check():
 
 
 # ===== OAuth: start login =====
-@app.get("/api/auth/spotify", response_model=AuthResponse)
+@app.get("/connect", response_model=AuthResponse)
 async def spotify_auth():
     """
     Step 1: Generate Spotify authorization URL and return it to frontend.
@@ -147,11 +149,11 @@ async def spotify_auth():
     logger.info("Starting Spotify OAuth flow")
     auth_url = get_spotify_auth_url()
     logger.info(f"Generated Spotify auth URL: {auth_url}")
-    return AuthResponse(authenticated=False, auth_url=auth_url)
+    return RedirectResponse(auth_url)
 
 
 # ===== OAuth: callback from Spotify =====
-@app.get("/api/auth/spotify/callback")
+@app.get("/callback")
 async def spotify_callback(request: Request):
     """
     Step 2: Spotify redirects here with authorization code.
