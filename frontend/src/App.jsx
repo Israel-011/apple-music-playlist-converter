@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "./components/Header";
 import LoadingSpinner from "./components/LoadingSpinner";
 import StatusDisplay from "./components/StatusDisplay";
@@ -14,18 +14,103 @@ function App() {
   const [conversionStatus, setConversionStatus] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // -------------------------------------------------------
+  //  AUTH STATUS CHECK ON PAGE LOAD (with full logging)
+  // -------------------------------------------------------
+  useEffect(() => {
+    console.log(
+      "%c[UI] App mounted — checking Spotify authentication status...",
+      "color: #38bdf8; font-weight: bold",
+    );
+
+    const checkAuth = async () => {
+      try {
+        console.log(
+          "%c[UI] Calling playlistService.checkSpotifyAuth()",
+          "color: #60a5fa",
+        );
+
+        const status = await playlistService.checkSpotifyAuth();
+
+        console.log("%c[UI] Auth status response:", "color: #facc15", status);
+
+        if (status.authenticated) {
+          console.log(
+            "%c[UI] User IS authenticated with Spotify",
+            "color: #4ade80; font-weight: bold",
+          );
+          setIsAuthenticated(true);
+        } else {
+          console.log(
+            "%c[UI] User is NOT authenticated with Spotify",
+            "color: #f87171; font-weight: bold",
+          );
+        }
+      } catch (err) {
+        console.error(
+          "%c[UI] Error checking Spotify auth status:",
+          "color: #f87171",
+          err,
+        );
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // -------------------------------------------------------
+  // HANDLE SPOTIFY AUTH BUTTON CLICK
+  // -------------------------------------------------------
   const handleSpotifyAuth = async () => {
+    console.log(
+      "%c[UI] Connect Spotify button clicked",
+      "color: #4ade80; font-weight: bold",
+    );
+
     try {
       setError("");
+      console.log(
+        "%c[UI] Calling playlistService.authenticateSpotify()",
+        "color: #60a5fa",
+      );
+
       const data = await playlistService.authenticateSpotify();
+
+      console.log("%c[UI] Response from backend:", "color: #facc15", data);
+
+      if (!data) {
+        console.error("%c[UI] No data returned from backend", "color: #f87171");
+        return;
+      }
+
       if (data.auth_url) {
+        console.log(
+          "%c[UI] Redirecting user to Spotify:",
+          "color: #a78bfa",
+          data.auth_url,
+        );
         window.location.href = data.auth_url;
+      } else {
+        console.error(
+          "%c[UI] Backend did NOT return auth_url",
+          "color: #f87171",
+          data,
+        );
+        setError("Backend did not return a Spotify login URL");
       }
     } catch (err) {
+      console.error(
+        "%c[UI] Error during Spotify authentication:",
+        "color: #f87171",
+        err,
+      );
       setError(err.error || "Failed to authenticate with Spotify");
     }
   };
 
+  // -------------------------------------------------------
+  //  HANDLE PLAYLIST CONVERSION
+  // -------------------------------------------------------
   const handleConvert = async (e) => {
     e.preventDefault();
 
@@ -57,7 +142,6 @@ function App() {
         totalCount: result.total_count || 0,
       });
 
-      // Clear form
       setApplePlaylistUrl("");
       setSpotifyPlaylistName("");
     } catch (err) {
@@ -67,6 +151,9 @@ function App() {
     }
   };
 
+  // -------------------------------------------------------
+  // UI RENDER
+  // -------------------------------------------------------
   return (
     <div className="min-h-screen w-full py-8 px-4">
       <div className="max-w-4xl mx-auto">

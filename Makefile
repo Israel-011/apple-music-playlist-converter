@@ -32,7 +32,11 @@ clean:
 
 .PHONY: run
 run:
-	uv run src/main.py
+	uv run python -m backend.api
+
+.PHONY: run-backend
+run-backend:
+	uv run uvicorn backend.api:app --reload --host 0.0.0.0 --port 8000
 
 .PHONY: all
 all: install lint format test

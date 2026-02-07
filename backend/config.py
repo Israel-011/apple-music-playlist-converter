@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     CLIENT_ID: str = Field(default="", alias="CLIENT_ID")
     CLIENT_SECRET: str = Field(default="", alias="CLIENT_SECRET")
-    REDIRECT_URI: str = Field(default="", alias="REDIRECT_URL")
+    REDIRECT_URL: str = Field(default="", alias="REDIRECT_URL")
     LOG_LEVEL: int = Field(default=logging.INFO, alias="LOG_LEVEL")
     SCOPE: str | list[str] = Field(default="", alias="SCOPE")
 

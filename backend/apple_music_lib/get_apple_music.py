@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 from playwright.async_api import Browser, Page, async_playwright
 
-from logger_lib import create_logger
+from backend.logger_lib import create_logger
 
 
 def get_bearer_auth_token(html: str) -> str:

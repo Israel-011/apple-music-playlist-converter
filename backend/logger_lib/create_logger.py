@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Final, Optional
 
-from config import settings
+from backend.config import settings
 
 LEVEL_COLOURS: Final[list[tuple[int, str]]] = [
     (logging.DEBUG, "\x1b[40;1m"),
